@@ -61,11 +61,11 @@ stages:
     outs:
     - path: outputs/metrics.json
       hash: md5
-      md5: a025808c1b753f61a028417e3ade368b
-      size: 541
+      md5: a67bfdc144637734c696d2488d7410fc
+      size: 539
     - path: outputs/model.pth
       hash: md5
-      md5: 572dfd89168b4fcb4f52627edc0e0f1d
+      md5: e044137bc760f1e9b4a9d753a38f6cad
       size: 313302725
   evaluate:
     cmd: python scripts/evaluate.py
@@ -77,7 +77,7 @@ stages:
       nfiles: 860
     - path: outputs/model.pth
       hash: md5
-      md5: 572dfd89168b4fcb4f52627edc0e0f1d
+      md5: e044137bc760f1e9b4a9d753a38f6cad
       size: 313302725
     - path: scripts/env_loader.py
       hash: md5
@@ -90,15 +90,15 @@ stages:
     outs:
     - path: outputs/eval
       hash: md5
-      md5: eef7b8b28fc827f1aaeda757cf498b06.dir
-      size: 332321
+      md5: 48502eb4062a82497863131f257e0a30.dir
+      size: 334893
       nfiles: 5
   inference:
     cmd: python scripts/inference.py
     deps:
     - path: outputs/model.pth
       hash: md5
-      md5: 572dfd89168b4fcb4f52627edc0e0f1d
+      md5: e044137bc760f1e9b4a9d753a38f6cad
       size: 313302725
     - path: scripts/env_loader.py
       hash: md5
@@ -115,8 +115,8 @@ stages:
     outs:
     - path: outputs/infer
       hash: md5
-      md5: 965523060c7000561b338c20a8555d67.dir
-      size: 414501
+      md5: f2647cb46bef868df2ea800644ff9252.dir
+      size: 452547
       nfiles: 6
   gate:
     cmd: python scripts/check_metrics.py --metrics outputs/metrics.json --config
@@ -128,8 +128,8 @@ stages:
       size: 910
     - path: outputs/metrics.json
       hash: md5
-      md5: a025808c1b753f61a028417e3ade368b
-      size: 541
+      md5: a67bfdc144637734c696d2488d7410fc
+      size: 539
     - path: scripts/check_metrics.py
       hash: md5
       md5: d9338d6a4fcec8ca257996e659078ecc
@@ -157,11 +157,11 @@ stages:
       size: 3
     - path: outputs/metrics.json
       hash: md5
-      md5: a025808c1b753f61a028417e3ade368b
-      size: 541
+      md5: a67bfdc144637734c696d2488d7410fc
+      size: 539
     - path: outputs/model.pth
       hash: md5
-      md5: 572dfd89168b4fcb4f52627edc0e0f1d
+      md5: e044137bc760f1e9b4a9d753a38f6cad
       size: 313302725
     - path: scripts/env_loader.py
       hash: md5
@@ -174,5 +174,5 @@ stages:
     outs:
     - path: outputs/register.ok
       hash: md5
-      md5: 9658d6a316fd8e79f5aacfa01b6a614c
+      md5: 41b122c10c78447ce7eda8e56b424b4c
       size: 13
