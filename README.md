@@ -82,7 +82,7 @@ Use your DagsHub access token for both key and secret in this setup.
 
 ## Configure MLflow
 
-Create a local `.env` (or copy from `.env.example`) and set:
+Create a local `.env` (or copy from `.env.local.example`) and set:
 
 ```env
 MLFLOW_TRACKING_URI=<your_dagshub_repo_url>.mlflow
@@ -148,6 +148,8 @@ For local app usage:
 ```bash
 docker compose up -d --build
 ```
+
+If you want a deployment-oriented app env template, use `.env.deploy.example` as a reference.
 
 Endpoints:
 
