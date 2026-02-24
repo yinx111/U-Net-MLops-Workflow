@@ -230,8 +230,7 @@ Deployment compose file:
 
 - `deploy/docker-compose.deploy.yml`
 
-<img width="937" height="354" alt="image" src="https://github.com/user-attachments/assets/0805b789-28e8-40c7-988f-360c3bbd345f" />
-
+<img width="950" height="742" alt="image" src="https://github.com/user-attachments/assets/8a94dae2-98e7-4986-a6ea-868d1e5b8cd0" />
 
 ## GitHub Environment (`staging`) Setup
 
