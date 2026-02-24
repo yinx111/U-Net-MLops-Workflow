@@ -271,7 +271,7 @@ Deployment compose file:
 
 ```bash
 # 1) Train and update outputs
-dvc repro (dvc repro --force)
+dvc repro --force
 
 # 2) Push artifacts to DVC remote
 dvc push outputs/model.pth
