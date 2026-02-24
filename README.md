@@ -16,6 +16,7 @@ It combines:
 - Reproducible pipeline via `dvc.yaml`
 - Quality gate before model registration
 - MLflow run tracking under a single experiment
+- CI checks with lint/type-check, smoke tests, and mini DVC validation
 - Dockerized web app deployment
 - CD model delivery from DVC remote to deployment host
 - CD guardrail: deployment on `push` only runs when `dvc.lock` changes
@@ -64,7 +65,6 @@ conda activate smp
 pip install -r requirements.txt
 ```
 
-`requirements.txt` already includes `dvc[s3]==3.66.1`.
 
 ## Configure DVC Remote (DagsHub)
 
@@ -234,16 +234,12 @@ Deployment compose file:
 | `MODEL_SHA256` | Optional checksum pin. | empty |
 | `DVC_AWS_REGION` | Region for DVC S3 client. | `us-east-1` |
 
-Notes:
-
-- In current workflow, `STAGING_DEPLOY_PATH` is read from secrets.
-- If `MODEL_SHA256` is empty, checksum enforcement is skipped.
 
 ## Recommended Release Sequence
 
 ```bash
 # 1) Train and update outputs
-dvc repro train evaluate inference gate register
+dvc repro (dvc repro --force)
 
 # 2) Push artifacts to DVC remote
 dvc push outputs/model.pth
