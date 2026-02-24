@@ -77,6 +77,9 @@ dvc remote modify origin --local secret_access_key <your_token>
 
 Use your DagsHub access token for both key and secret in this setup.
 
+<img width="460" height="473" alt="dvc remote setting ok" src="https://github.com/user-attachments/assets/2249e74f-2f90-434d-85dc-86f5d74ad967" />
+
+
 ## Configure MLflow
 
 Create a local `.env` (or copy from `.env.example`) and set:
@@ -86,6 +89,9 @@ MLFLOW_TRACKING_URI=<your_dagshub_repo_url>.mlflow
 MLFLOW_TRACKING_USERNAME=<your_username>
 MLFLOW_TRACKING_PASSWORD=<your_token>
 ```
+
+<img width="1147" height="503" alt="image" src="https://github.com/user-attachments/assets/3ec18948-ec86-4aa1-99b2-c8350c7a7b8f" />
+
 
 Recommended local inference-related values in `.env`:
 
@@ -132,6 +138,9 @@ dvc status -c
 - New training runs are appended as runs under one experiment
 - If the experiment is soft-deleted, training restores and reuses the same experiment name
 
+<img width="1913" height="913" alt="image" src="https://github.com/user-attachments/assets/5a4baa73-78dd-4b63-832b-46810e76dfe6" />
+
+
 ## Local Web App
 
 For local app usage:
@@ -147,9 +156,15 @@ Endpoints:
 
 `/healthz` validates checkpoint existence/readability.
 
+<img width="699" height="333" alt="image" src="https://github.com/user-attachments/assets/3d9f9bea-7b2d-456e-ac62-9b1aaa63ee80" />
+
+
 ## CI (GitHub Actions)
 
 Workflow: `.github/workflows/ci.yml`
+
+<img width="983" height="430" alt="image" src="https://github.com/user-attachments/assets/cf6686e6-9d86-496f-ab20-9bc77f8ace73" />
+
 
 ### Triggers
 
@@ -204,6 +219,9 @@ Deployment compose file:
 
 - `deploy/docker-compose.deploy.yml`
 
+<img width="937" height="354" alt="image" src="https://github.com/user-attachments/assets/0805b789-28e8-40c7-988f-360c3bbd345f" />
+
+
 ## GitHub Environment (`staging`) Setup
 
 ### Secrets
@@ -233,6 +251,9 @@ Deployment compose file:
 | `MODEL_DVC_PATH` | DVC model path pulled in CD. | `outputs/model.pth` |
 | `MODEL_SHA256` | Optional checksum pin. | empty |
 | `DVC_AWS_REGION` | Region for DVC S3 client. | `us-east-1` |
+
+
+<img width="940" height="853" alt="image" src="https://github.com/user-attachments/assets/cff7bc62-5978-49cd-9196-227cb72c7514" />
 
 
 ## Recommended Release Sequence
