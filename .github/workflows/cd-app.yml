@@ -25,7 +25,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  detect-dvc-lock-change:
+    runs-on: ubuntu-latest
+    outputs:
+      dvc_lock_changed: ${{ steps.diff.outputs.dvc_lock_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check whether dvc.lock changed
+        id: diff
+        run: |
+          set -euo pipefail
+          changed="false"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            changed="true"
+          else
+            before="${{ github.event.before }}"
+            after="${{ github.sha }}"
+            zero_sha="0000000000000000000000000000000000000000"
+
+            if [[ -z "${before}" || "${before}" == "${zero_sha}" ]]; then
+              if git show --name-only --pretty='' "${after}" | grep -qx "dvc.lock"; then
+                changed="true"
+              fi
+            else
+              if git diff --name-only "${before}" "${after}" | grep -qx "dvc.lock"; then
+                changed="true"
+              fi
+            fi
+          fi
+
+          echo "dvc_lock_changed=${changed}" >> "${GITHUB_OUTPUT}"
+          echo "dvc_lock_changed=${changed}"
+
   build-and-push:
+    needs: detect-dvc-lock-change
+    if: github.event_name == 'workflow_dispatch' || needs.detect-dvc-lock-change.outputs.dvc_lock_changed == 'true'
     runs-on: ubuntu-latest
     outputs:
       image_ref: ${{ steps.meta.outputs.image_ref }}
@@ -73,8 +112,8 @@ jobs:
 
   deploy-staging:
     runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target_env == 'staging')
+    needs: [detect-dvc-lock-change, build-and-push]
+    if: (github.event_name == 'push' && needs.detect-dvc-lock-change.outputs.dvc_lock_changed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.target_env == 'staging')
     environment: staging
     steps:
       - name: Checkout
