@@ -1,73 +1,105 @@
-# U-Net++ MLOps Workflow
+# U-Net++ Satellite Segmentation MLOps Workflow
 
-An end-to-end remote sensing segmentation project with:
+This repository provides an end-to-end MLOps workflow for multispectral satellite image segmentation based on U-Net++.
 
-- Local training with PyTorch + U-Net++
-- DVC-based data/model artifact versioning
-- MLflow experiment tracking and model registration
+It combines:
+
+- Model training/evaluation/inference scripts (PyTorch)
+- DVC data + artifact versioning
+- MLflow tracking and model registry integration
 - FastAPI web inference app
-- GitHub Actions CI/CD for remote deployment
+- GitHub Actions CI and CD pipelines
+- DagsHub-backed DVC/MLflow remote setup
 
-## 1. Repository Structure
+## Features
+
+- Reproducible pipeline via `dvc.yaml`
+- Quality gate before model registration
+- MLflow run tracking under a single experiment
+- Dockerized web app deployment
+- CD model delivery from DVC remote to deployment host
+- CD guardrail: deployment on `push` only runs when `dvc.lock` changes
+
+## Repository Layout
 
 ```text
 .
-├── app/                          # FastAPI web app
-├── configs/train.yaml            # Training config
+├── app/                          # FastAPI app + UI
+├── configs/train.yaml            # Training/MLflow/gate config
 ├── deploy/docker-compose.deploy.yml
 ├── scripts/
-│   ├── train.py                  # Training
-│   ├── evaluate.py               # Evaluation
-│   ├── inference.py              # Inference + polygon export
-│   ├── check_metrics.py          # Quality gate
-│   └── register_model.py         # MLflow registration
-├── dvc.yaml                      # DVC pipeline definition
-├── dvc.lock                      # DVC lockfile (deployment-critical)
-├── dataset_split.dvc             # DVC-tracked dataset pointer
-├── docker-compose.yml            # Local app + cloudflared
+│   ├── train.py
+│   ├── evaluate.py
+│   ├── inference.py
+│   ├── check_metrics.py
+│   └── register_model.py
+├── dvc.yaml                      # Pipeline definition
+├── dvc.lock                      # Pipeline lock (deployment-critical)
+├── dataset_split.dvc             # DVC dataset pointer
+├── docker-compose.yml            # Local app compose
+├── requirements.txt              # Local training/runtime deps
+├── requirements_CI.txt           # CI deps
+├── requirements_app.txt          # App image deps
 └── .github/workflows/
     ├── ci.yml
     └── cd-app.yml
 ```
 
-## 2. Prerequisites
+## Prerequisites
 
 - Python 3.9
 - Linux + CUDA recommended for local GPU training
+- DVC remote and MLflow tracking server (DagsHub in current setup)
 
-Install training/pipeline dependencies:
+## Installation
 
 ```bash
+conda create --name smp python=3.9 -y
+conda activate smp
+
+# Optional: install your CUDA-matching PyTorch first
+# Example (CUDA 11.3):
+# pip install torch==1.10.1+cu113 torchvision==0.11.2+cu113 torchaudio==0.10.1 -f https://download.pytorch.org/whl/torch_stable.html
+
 pip install -r requirements.txt
-pip install "dvc[s3]==3.66.1"
 ```
 
-If you only run the web app:
+`requirements.txt` already includes `dvc[s3]==3.66.1`.
+
+## Configure DVC Remote (DagsHub)
 
 ```bash
-pip install -r requirements_app.txt
+dvc remote add origin s3://dvc
+dvc remote modify origin endpointurl <your_dagshub_repo_url>.s3
+dvc remote modify origin --local access_key_id <your_token>
+dvc remote modify origin --local secret_access_key <your_token>
 ```
 
-## 3. Local `.env` Setup
+Use your DagsHub access token for both key and secret in this setup.
 
-Create local env file:
+## Configure MLflow
 
-```bash
-cp .env.example .env
+Create a local `.env` (or copy from `.env.example`) and set:
+
+```env
+MLFLOW_TRACKING_URI=<your_dagshub_repo_url>.mlflow
+MLFLOW_TRACKING_USERNAME=<your_username>
+MLFLOW_TRACKING_PASSWORD=<your_token>
 ```
 
-Recommended local values for training/inference:
+Recommended local inference-related values in `.env`:
 
-- `CHECKPOINT_PATH=./outputs/model.pth`
-- `IMG_PATH=./test_img/area_test1.tif`
-- `OUT_DIR=./outputs/infer`
-- GPU training: `FORCE_CPU=0`, `CUDA_VISIBLE_DEVICES=0` (or your preferred GPU list)
+```env
+CHECKPOINT_PATH=./outputs/model.pth
+IMG_PATH=./test_img/area_test1.tif
+OUT_DIR=./outputs/infer
+FORCE_CPU=0
+CUDA_VISIBLE_DEVICES=0
+```
 
-Important:
-- Do not put deployment container paths (such as `/workspace/...`) into local training `.env`.
-- Keep secrets out of Git (tokens, passwords, keys).
+Do not use deployment container paths (such as `/workspace/...`) in local training `.env`.
 
-## 4. DVC Pipeline
+## DVC Pipeline
 
 Defined in `dvc.yaml`:
 
@@ -83,26 +115,26 @@ Common commands:
 # Full pipeline
 dvc repro
 
-# Typical model update stages
+# Typical model release stages
 dvc repro train evaluate inference gate register
 
 # Local status
 dvc status
 
-# Remote/cloud sync status
+# Cloud sync status
 dvc status -c
 ```
 
-## 5. MLflow Behavior
+## MLflow Behavior
 
-- Main config: `configs/train.yaml` -> `mlflow` section
-- Default experiment name: `u-net-workflow`
-- Each training run is appended as a new run under the same experiment
-- If the experiment was soft-deleted, `train.py` restores it and keeps using the same name
+- Config source: `configs/train.yaml` (`mlflow` section)
+- Default experiment: `u-net-workflow`
+- New training runs are appended as runs under one experiment
+- If the experiment is soft-deleted, training restores and reuses the same experiment name
 
-## 6. Local Web Inference App
+## Local Web App
 
-Local compose (`docker-compose.yml`) mounts local outputs and runs the app:
+For local app usage:
 
 ```bash
 docker compose up -d --build
@@ -113,105 +145,131 @@ Endpoints:
 - UI: `http://127.0.0.1:8000`
 - Health: `http://127.0.0.1:8000/healthz`
 
-`/healthz` checks checkpoint existence/readability.
+`/healthz` validates checkpoint existence/readability.
 
-## 7. CI
+## CI (GitHub Actions)
 
-`ci.yml` includes:
+Workflow: `.github/workflows/ci.yml`
 
-- Ruff + MyPy
-- Pytest smoke tests
-- DVC mini pipeline on `dataset_mini` (CPU)
+### Triggers
 
-## 8. CD (GitHub Actions)
+- `push` to `dev`, `main`, `master`
+- `pull_request` targeting `dev`, `main`, `master`
+
+### Jobs
+
+1. `lint-and-typecheck`
+- Ruff
+- MyPy (lenient config)
+
+2. `tests`
+- Installs `requirements_CI.txt`
+- Runs `pytest -q`
+
+3. `dvc-mini`
+- Installs `requirements_CI.txt`
+- Copies `dataset_mini` to `dataset_split`
+- Runs a lightweight DVC pipeline on CPU:
+  - `dvc repro --force evaluate inference`
+
+## CD (GitHub Actions)
 
 Workflow: `.github/workflows/cd-app.yml`
 
-### Trigger Rules
+### Triggers
 
-- `push` to `dev/main/master`: deploy only when `dvc.lock` changed
-- `workflow_dispatch`: manual deploy to `staging`
+- `push` to `dev`, `main`, `master`
+- `workflow_dispatch` (manual)
+
+### Deploy Guardrail
+
+On `push`, build/deploy runs only when `dvc.lock` changed.
 
 ### Deployment Flow
 
 1. Build and push app image to GHCR
-2. Runner executes `dvc pull` (default `outputs/model.pth`)
-3. Runner uploads compose + model via SCP to target host
-4. Remote host runs `docker compose up -d`
-5. If health check fails, workflow rolls back to previous image
+2. Pull model artifact from DVC remote on the GitHub runner
+3. Upload compose file + model to remote host via SCP
+4. Run remote `docker compose up -d`
+5. Wait for health check; rollback to previous image on failure
 
 ### Model Path Mapping
 
-- Remote host: `<STAGING_DEPLOY_PATH>/deploy/models/<GITHUB_SHA>/model.pth`
-- In container: `/workspace/models/<GITHUB_SHA>/model.pth`
+- Remote host file:
+  - `<STAGING_DEPLOY_PATH>/deploy/models/<GITHUB_SHA>/model.pth`
+- Container path:
+  - `/workspace/models/<GITHUB_SHA>/model.pth`
 
-Deployment compose file: `deploy/docker-compose.deploy.yml`
+Deployment compose file:
 
-## 9. GitHub Environment (`staging`) Configuration
+- `deploy/docker-compose.deploy.yml`
 
-### Required Secrets
+## GitHub Environment (`staging`) Setup
 
-| Name | Required | Description | Example |
-|---|---|---|---|
-| `STAGING_SSH_HOST` | Yes | Public IP or DNS of deployment server. | `1.2.3.4` or `my-server.example.com` |
-| `STAGING_SSH_USER` | Yes | SSH login user on target server. | `ubuntu` |
-| `STAGING_SSH_KEY` | Yes | Private SSH key (PEM/OpenSSH) for `STAGING_SSH_USER`. | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
-| `STAGING_DEPLOY_PATH` | Yes | Absolute directory on remote host where files are copied and compose runs. | `/home/ubuntu/webapp_deploy` |
-| `STAGING_GHCR_USERNAME` | Yes | Username used to pull from GHCR on remote host. | `your-github-user` |
-| `STAGING_GHCR_TOKEN` | Yes | Token/PAT with package read permission (`read:packages`). | `ghp_xxx...` |
-| `STAGING_DVC_ACCESS_KEY_ID` | Yes | Access key for DVC S3-compatible remote (Dagshub storage). | `AKIA...` |
-| `STAGING_DVC_SECRET_ACCESS_KEY` | Yes | Secret key for DVC S3-compatible remote. | `xxxx` |
-| `CLOUDFLARED_TOKEN` | Yes | Cloudflare tunnel token used by `cloudflared` container. | `eyJ...` |
+### Secrets
 
-### Optional Variables
+| Name | Description | Example |
+|---|---|---|
+| `STAGING_SSH_HOST` | Deployment server public IP or DNS. | `1.2.3.4` |
+| `STAGING_SSH_USER` | SSH login user. | `ubuntu` |
+| `STAGING_SSH_KEY` | Private SSH key for the user. | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
+| `STAGING_DEPLOY_PATH` | Absolute remote deployment directory. | `/home/ubuntu/webapp_deploy` |
+| `STAGING_GHCR_USERNAME` | GHCR pull username on remote host. | `your-github-user` |
+| `STAGING_GHCR_TOKEN` | GHCR token/PAT with `read:packages`. | `ghp_xxx...` |
+| `STAGING_DVC_ACCESS_KEY_ID` | DVC remote access key (S3-compatible). | `AKIA...` |
+| `STAGING_DVC_SECRET_ACCESS_KEY` | DVC remote secret key. | `xxxx` |
+| `CLOUDFLARED_TOKEN` | Cloudflare tunnel token. | `eyJ...` |
 
-| Name | Required | Description | Default / Typical Value |
-|---|---|---|---|
-| `APP_HOST` | No | Host bind for FastAPI app in container env. | `0.0.0.0` |
-| `APP_PORT` | No | Public/app port used by compose. | `8000` |
-| `MAX_UPLOAD_MB` | No | Upload size limit for app endpoint. | `200` |
-| `INFERENCE_TIMEOUT_SECONDS` | No | Inference subprocess timeout. | `3600` |
-| `FORCE_CPU` | No | Force CPU inference in deployed app (`1/0`, `true/false`). | `1` |
-| `CUDA_VISIBLE_DEVICES` | No | GPU visibility mask in deployed container. | empty |
-| `MODEL_DVC_PATH` | No | DVC-tracked model file path pulled in CD. | `outputs/model.pth` |
-| `MODEL_SHA256` | No | Optional integrity pin; CD fails if checksum mismatches. | empty |
-| `DVC_AWS_REGION` | No | Region for DVC S3 client. | `us-east-1` |
+### Variables
+
+| Name | Description | Default / Typical |
+|---|---|---|
+| `APP_HOST` | FastAPI bind host in container. | `0.0.0.0` |
+| `APP_PORT` | Exposed app port. | `8000` |
+| `MAX_UPLOAD_MB` | Upload size limit. | `200` |
+| `INFERENCE_TIMEOUT_SECONDS` | Inference timeout. | `3600` |
+| `FORCE_CPU` | Force CPU inference (`1/0`). | `1` |
+| `CUDA_VISIBLE_DEVICES` | Visible GPUs for inference container. | empty |
+| `MODEL_DVC_PATH` | DVC model path pulled in CD. | `outputs/model.pth` |
+| `MODEL_SHA256` | Optional checksum pin. | empty |
+| `DVC_AWS_REGION` | Region for DVC S3 client. | `us-east-1` |
 
 Notes:
-- `STAGING_DEPLOY_PATH` is configured as a secret in the current workflow.
-- If `MODEL_SHA256` is empty, checksum validation is skipped.
 
-## 10. Recommended Release Sequence
+- In current workflow, `STAGING_DEPLOY_PATH` is read from secrets.
+- If `MODEL_SHA256` is empty, checksum enforcement is skipped.
+
+## Recommended Release Sequence
 
 ```bash
-# 1) Train and update artifacts
+# 1) Train and update outputs
 dvc repro train evaluate inference gate register
 
-# 2) Push model/artifacts to DVC remote
+# 2) Push artifacts to DVC remote
 dvc push outputs/model.pth
-# or dvc push
+# or: dvc push
 
-# 3) Commit code + dvc.lock
+# 3) Commit pipeline lock/code and push
 git add dvc.lock
 git commit -m "update model"
 git push
 ```
 
-CD pulls the model version referenced by the commit's `dvc.lock`, not simply the newest object in remote storage.
+CD pulls the model referenced by the pushed commit's `dvc.lock`, not simply the newest remote object.
 
-## 11. Troubleshooting
+## Troubleshooting
 
-1. `FileNotFoundError: /workspace/outputs/model.pth` during local runs
-- Cause: local `.env` uses deployment container path
+1. `FileNotFoundError: /workspace/outputs/model.pth` in local runs
+- Cause: local `.env` accidentally uses deployment container path
 - Fix: set `CHECKPOINT_PATH=./outputs/model.pth`
 
-2. `dvc status -c` fails with missing `dvc_s3`
+2. `dvc status -c` fails due to missing `dvc_s3`
 - Fix: `pip install "dvc[s3]==3.66.1"`
 
 3. CD SCP step fails with `dial tcp ...:22: i/o timeout`
-- Usually SSH/network reachability issue (host, security group, firewall, or SSH service)
+- Usually SSH connectivity issue (host/firewall/security group/sshd)
 
-## 12. Data Attribution
+## Data Attribution
 
 - Source imagery: USDA NAIP
 - Processed/labeled dataset: yinx111 (2025)
