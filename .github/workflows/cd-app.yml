@@ -33,34 +33,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Check whether dvc.lock changed
         id: diff
         run: |
           set -euo pipefail
           changed="false"
+          reason="unchanged"
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             changed="true"
+            reason="manual dispatch"
           else
-            before="${{ github.event.before }}"
-            after="${{ github.sha }}"
-            zero_sha="0000000000000000000000000000000000000000"
-
-            if [[ -z "${before}" || "${before}" == "${zero_sha}" ]]; then
-              if git show --name-only --pretty='' "${after}" | grep -qx "dvc.lock"; then
-                changed="true"
-              fi
+            # Compare current dvc.lock with the previous commit that changed dvc.lock,
+            # so intermediate non-training commits do not affect detection.
+            if ! git cat-file -e "HEAD:dvc.lock" 2>/dev/null; then
+              changed="false"
+              reason="dvc.lock missing at HEAD"
             else
-              if git diff --name-only "${before}" "${after}" | grep -qx "dvc.lock"; then
+              current_blob="$(git rev-parse HEAD:dvc.lock)"
+              prev_lock_commit="$(git rev-list -n 1 HEAD^ -- dvc.lock || true)"
+
+              if [[ -z "${prev_lock_commit}" ]]; then
                 changed="true"
+                reason="first tracked dvc.lock version"
+              else
+                prev_blob="$(git rev-parse "${prev_lock_commit}:dvc.lock")"
+                if [[ "${current_blob}" != "${prev_blob}" ]]; then
+                  changed="true"
+                  reason="dvc.lock differs from previous training commit"
+                else
+                  changed="false"
+                  reason="dvc.lock same as previous training commit"
+                fi
               fi
             fi
           fi
 
           echo "dvc_lock_changed=${changed}" >> "${GITHUB_OUTPUT}"
           echo "dvc_lock_changed=${changed}"
+          echo "detect_reason=${reason}"
 
   build-and-push:
     needs: detect-dvc-lock-change
