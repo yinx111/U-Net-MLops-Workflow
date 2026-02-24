@@ -156,6 +156,13 @@ Endpoints:
 
 `/healthz` validates checkpoint existence/readability.
 
+Cloudflare tunnel note:
+
+- `docker-compose.yml` also starts a `cloudflared` sidecar service.
+- `cloudflared` forwards external traffic to the internal `app:8000` service.
+- The tunnel is authenticated using `CLOUDFLARED_TOKEN` from your environment.
+- To get a tunnel token: Cloudflare Zero Trust -> Networks -> Tunnels -> select/create a tunnel -> choose Docker/cloudflared connector -> copy the token from `cloudflared tunnel run --token <TOKEN>`.
+
 <img width="699" height="333" alt="image" src="https://github.com/user-attachments/assets/3d9f9bea-7b2d-456e-ac62-9b1aaa63ee80" />
 
 
@@ -207,6 +214,8 @@ On `push`, build/deploy runs only when `dvc.lock` changed.
 3. Upload compose file + model to remote host via SCP
 4. Run remote `docker compose up -d`
 5. Wait for health check; rollback to previous image on failure
+
+In deployment compose, `cloudflared` runs alongside the app container so traffic can be exposed through Cloudflare Tunnel without opening the app service directly to the internet.
 
 ### Model Path Mapping
 
