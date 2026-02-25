@@ -12,7 +12,6 @@ stages:
     deps:
       - scripts/train.py
       - scripts/env_loader.py
-      - .env
       - dataset_split
       - configs/train.yaml
     outs:
@@ -24,7 +23,6 @@ stages:
     deps:
       - scripts/evaluate.py
       - scripts/env_loader.py
-      - .env
       - dataset_split
       - outputs/model.pth
     outs:
@@ -34,7 +32,6 @@ stages:
     deps:
       - scripts/inference.py
       - scripts/env_loader.py
-      - .env
       - outputs/model.pth
       - test_img/area_test1.tif
     outs:
@@ -44,7 +41,6 @@ stages:
     deps:
       - scripts/check_metrics.py
       - scripts/env_loader.py
-      - .env
       - outputs/metrics.json
       - configs/train.yaml
     outs:
@@ -54,7 +50,6 @@ stages:
     deps:
       - scripts/register_model.py
       - scripts/env_loader.py
-      - .env
       - outputs/metrics.json
       - outputs/model.pth
       - outputs/gate.ok

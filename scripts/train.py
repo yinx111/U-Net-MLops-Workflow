@@ -3,7 +3,6 @@ import json
 import os
 import random
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 from typing import Dict, Any
@@ -190,12 +189,15 @@ def mlflow_start():
     try:
         mlflow.set_experiment(MLFLOW_EXPERIMENT)
     except Exception as e:
-        # Handle case where experiment was soft-deleted on the tracking server
+        # If the target experiment was soft-deleted, restore it and reuse the same name.
         msg = str(e).lower()
         if "deleted experiment" in msg:
-            fallback = f"{MLFLOW_EXPERIMENT}-restored-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-            print(f"[MLflow] Experiment '{MLFLOW_EXPERIMENT}' is deleted, switching to '{fallback}'")
-            mlflow.set_experiment(fallback)
+            client = mlflow.tracking.MlflowClient()
+            exp = client.get_experiment_by_name(MLFLOW_EXPERIMENT)
+            if exp is not None and getattr(exp, "lifecycle_stage", "") == "deleted":
+                client.restore_experiment(exp.experiment_id)
+                print(f"[MLflow] Restored deleted experiment: {MLFLOW_EXPERIMENT}")
+            mlflow.set_experiment(MLFLOW_EXPERIMENT)
         else:
             raise
     commit = get_git_commit_hash()

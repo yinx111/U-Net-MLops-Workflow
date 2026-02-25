@@ -4,3 +4,6 @@ outputs/
 __pycache__/
 .env
 /dataset_split
+webapp_runs/
+cmd_dvc.txt
+mlflow_cmd.txt

@@ -17,9 +17,9 @@ from env_loader import load_dotenv
 load_dotenv()
 
 # Paths aligned with DVC pipeline
-IMG_PATH = "./test_img/area_test1.tif"
-CHECKPOINT_PATH = "./outputs/model.pth"
-OUT_DIR = "./outputs/infer"
+IMG_PATH = os.getenv("IMG_PATH", "./test_img/area_test1.tif")
+CHECKPOINT_PATH = os.getenv("CHECKPOINT_PATH", "./outputs/model.pth")
+OUT_DIR = os.getenv("OUT_DIR", "./outputs/infer")
 
 # Configuration
 NUM_CLASSES = 6

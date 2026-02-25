@@ -1,0 +1,246 @@
+name: CD App
+
+on:
+  push:
+    branches: [dev, main, master]
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        options:
+          - staging
+      image_tag:
+        description: "Optional image tag to deploy (default: current commit tag)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cd-app-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  detect-dvc-lock-change:
+    runs-on: ubuntu-latest
+    outputs:
+      dvc_lock_changed: ${{ steps.diff.outputs.dvc_lock_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check whether dvc.lock changed
+        id: diff
+        run: |
+          set -euo pipefail
+          changed="false"
+          reason="unchanged"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            changed="true"
+            reason="manual dispatch"
+          else
+            # Compare current dvc.lock with the previous commit that changed dvc.lock,
+            # so intermediate non-training commits do not affect detection.
+            if ! git cat-file -e "HEAD:dvc.lock" 2>/dev/null; then
+              changed="false"
+              reason="dvc.lock missing at HEAD"
+            else
+              current_blob="$(git rev-parse HEAD:dvc.lock)"
+              prev_lock_commit="$(git rev-list -n 1 HEAD^ -- dvc.lock || true)"
+
+              if [[ -z "${prev_lock_commit}" ]]; then
+                changed="true"
+                reason="first tracked dvc.lock version"
+              else
+                prev_blob="$(git rev-parse "${prev_lock_commit}:dvc.lock")"
+                if [[ "${current_blob}" != "${prev_blob}" ]]; then
+                  changed="true"
+                  reason="dvc.lock differs from previous training commit"
+                else
+                  changed="false"
+                  reason="dvc.lock same as previous training commit"
+                fi
+              fi
+            fi
+          fi
+
+          echo "dvc_lock_changed=${changed}" >> "${GITHUB_OUTPUT}"
+          echo "dvc_lock_changed=${changed}"
+          echo "detect_reason=${reason}"
+
+  build-and-push:
+    needs: detect-dvc-lock-change
+    if: github.event_name == 'workflow_dispatch' || needs.detect-dvc-lock-change.outputs.dvc_lock_changed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      image_ref: ${{ steps.meta.outputs.image_ref }}
+      image_repo: ${{ steps.meta.outputs.image_repo }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image coordinates
+        id: meta
+        run: |
+          set -euo pipefail
+          repo_lc="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          image_repo="ghcr.io/${repo_lc}/app"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.image_tag }}" ]]; then
+            image_tag="${{ inputs.image_tag }}"
+          else
+            image_tag="sha-${GITHUB_SHA::12}"
+          fi
+          echo "image_repo=${image_repo}" >> "${GITHUB_OUTPUT}"
+          echo "image_tag=${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "image_ref=${image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: app/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.meta.outputs.image_ref }}
+            ${{ steps.meta.outputs.image_repo }}:latest
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [detect-dvc-lock-change, build-and-push]
+    if: (github.event_name == 'push' && needs.detect-dvc-lock-change.outputs.dvc_lock_changed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.target_env == 'staging')
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: "pip"
+
+      - name: Install DVC (S3 remote)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "dvc[s3]==3.66.1"
+
+      - name: Pull checkpoint from DVC
+        id: model
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_DVC_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_DVC_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.DVC_AWS_REGION }}
+          MODEL_DVC_PATH: ${{ vars.MODEL_DVC_PATH }}
+          EXPECTED_MODEL_SHA256: ${{ vars.MODEL_SHA256 }}
+        run: |
+          set -euo pipefail
+          model_dvc_path="${MODEL_DVC_PATH:-outputs/model.pth}"
+
+          dvc pull "${model_dvc_path}"
+          test -s "${model_dvc_path}"
+
+          model_sha256="$(sha256sum "${model_dvc_path}" | awk '{print $1}')"
+          if [ -n "${EXPECTED_MODEL_SHA256:-}" ] && [ "${model_sha256}" != "${EXPECTED_MODEL_SHA256}" ]; then
+            echo "Model sha256 mismatch: expected=${EXPECTED_MODEL_SHA256} actual=${model_sha256}"
+            exit 1
+          fi
+
+          model_subdir="models/${GITHUB_SHA}"
+          model_host_path="deploy/${model_subdir}/model.pth"
+          mkdir -p "$(dirname "${model_host_path}")"
+          cp "${model_dvc_path}" "${model_host_path}"
+
+          echo "model_sha256=${model_sha256}" >> "${GITHUB_OUTPUT}"
+          echo "model_subdir=${model_subdir}" >> "${GITHUB_OUTPUT}"
+
+      - name: Copy deploy assets to host
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: "deploy/docker-compose.deploy.yml,deploy/${{ steps.model.outputs.model_subdir }}/model.pth"
+          target: "${{ secrets.STAGING_DEPLOY_PATH }}"
+
+      - name: Deploy on staging
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGING_DEPLOY_PATH }}"
+
+            echo "${{ secrets.STAGING_GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.STAGING_GHCR_USERNAME }}" --password-stdin
+
+            prev_image="$(docker inspect --format='{{.Config.Image}}' unetpp-app 2>/dev/null || true)"
+            prev_checkpoint="$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' unetpp-app 2>/dev/null | awk -F= '$1=="CHECKPOINT_PATH" {print substr($0, index($0, "=") + 1)}' | tail -n1 || true)"
+            model_subdir="${{ steps.model.outputs.model_subdir }}"
+            model_host_path="deploy/${model_subdir}/model.pth"
+            model_sha_expected="${{ steps.model.outputs.model_sha256 }}"
+
+            test -s "${model_host_path}"
+            model_sha_actual="$(sha256sum "${model_host_path}" | awk '{print $1}')"
+            if [ "${model_sha_actual}" != "${model_sha_expected}" ]; then
+              echo "Model sha256 mismatch on host: expected=${model_sha_expected} actual=${model_sha_actual}"
+              exit 1
+            fi
+
+            export APP_IMAGE="${{ needs.build-and-push.outputs.image_ref }}"
+            export APP_HOST="${{ vars.APP_HOST }}"
+            export APP_PORT="${{ vars.APP_PORT }}"
+            export MAX_UPLOAD_MB="${{ vars.MAX_UPLOAD_MB }}"
+            export INFERENCE_TIMEOUT_SECONDS="${{ vars.INFERENCE_TIMEOUT_SECONDS }}"
+            export CHECKPOINT_PATH="/workspace/${model_subdir}/model.pth"
+            export FORCE_CPU="${{ vars.FORCE_CPU }}"
+            export CUDA_VISIBLE_DEVICES="${{ vars.CUDA_VISIBLE_DEVICES }}"
+            export CLOUDFLARED_TOKEN="${{ secrets.CLOUDFLARED_TOKEN }}"
+
+            docker compose -f deploy/docker-compose.deploy.yml pull app
+            docker compose -f deploy/docker-compose.deploy.yml up -d app cloudflared
+
+            healthy=""
+            for _ in $(seq 1 24); do
+              healthy="$(docker inspect --format='{{.State.Health.Status}}' unetpp-app 2>/dev/null || true)"
+              if [ "${healthy}" = "healthy" ]; then
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "${healthy}" != "healthy" ]; then
+              echo "Staging deploy failed health check."
+              if [ -n "${prev_image}" ]; then
+                echo "Rolling back to previous image: ${prev_image}"
+                export APP_IMAGE="${prev_image}"
+                if [ -n "${prev_checkpoint}" ]; then
+                  export CHECKPOINT_PATH="${prev_checkpoint}"
+                fi
+                docker compose -f deploy/docker-compose.deploy.yml up -d app cloudflared
+              fi
+              exit 1
+            fi
+
+            docker image prune -f

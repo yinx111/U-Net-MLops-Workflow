@@ -1,3 +1,0 @@
-mlflow ui --backend-store-uri file:mlruns
-
-http://127.0.0.1:5000
